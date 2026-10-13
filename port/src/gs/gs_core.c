@@ -1359,11 +1359,10 @@ void Port_GsVif1Chain(uint32_t tadr, int tte) {
                 if (++slowReportWindow >= 3) {
                     slowReportWindow = 0;
                     if (over >= 20) {
-                        fprintf(stderr, "bt3: perf: %u/60 slow; avg %.1f ms, worst %.1f ms; game %.1f, GS %.1f (decode %.1f, pipeline %.1f, GPU present %.1f); scale %gx, renderer %s\n",
+                        fprintf(stderr, "bt3: perf: %u/60 slow; avg %.1f ms, worst %.1f ms; game %.1f, GS %.1f (decode %.1f, pipeline %.1f, GPU present %.1f)\n",
                                 over, (double)sum / 60e6, (double)worst / 1e6,
                                 (double)sumGame / 60e6, (double)sumList / 60e6,
-                                (double)sumTex / 60e6, (double)sumPipe / 60e6, (double)sumEnd / 60e6,
-                                gsScale4 / 4.0, sBackend != NULL ? sBackend->name : "?");
+                                (double)sumTex / 60e6, (double)sumPipe / 60e6, (double)sumEnd / 60e6);
                     }
                 }
             }
