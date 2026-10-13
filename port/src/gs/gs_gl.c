@@ -928,6 +928,14 @@ static void frame_end(void) {
     uint32_t n;
     struct { int32_t mode[4]; float misc[4]; float rect[4]; float orig[4]; } fu, lastFu;
     int haveFu = 0;
+    /* Avoid waiting for the Mali GPU to finish reading the previous frame's
+       streaming buffers before uploading fresh vertices. Can be reverted with
+       BT3_GL_ORPHAN=0 for driver troubleshooting. */
+    static int streamOrphan = -1;
+    if (streamOrphan < 0) {
+        const char *opt = getenv("BT3_GL_ORPHAN");
+        streamOrphan = opt != NULL ? atoi(opt) != 0 : GL_ES;
+    }
 
 #ifdef __ANDROID__
     (void)ev;
@@ -973,14 +981,17 @@ static void frame_end(void) {
 
     if (gsVertCount != 0) {
         glBindBuffer(GL_ARRAY_BUFFER, sVboGs);
+        if (streamOrphan) { glBufferData(GL_ARRAY_BUFFER, MAX_VERTS * sizeof(Vtx), NULL, GL_STREAM_DRAW); }
         glBufferSubData(GL_ARRAY_BUFFER, 0, (GLsizeiptr)(gsVertCount * sizeof(Vtx)), gsVerts);
     }
     if (gsVuVertCount != 0) {
         glBindBuffer(GL_ARRAY_BUFFER, sVboVu);
+        if (streamOrphan) { glBufferData(GL_ARRAY_BUFFER, MAX_VU_VERTS * 48, NULL, GL_STREAM_DRAW); }
         glBufferSubData(GL_ARRAY_BUFFER, 0, (GLsizeiptr)(gsVuVertCount * 48), gsVuVerts);
     }
     if (gsVuIdxCount != 0) {
         glBindVertexArray(sVaoVu);
+        if (streamOrphan) { glBufferData(GL_ELEMENT_ARRAY_BUFFER, MAX_VU_IDX * sizeof(uint32_t), NULL, GL_STREAM_DRAW); }
         glBufferSubData(GL_ELEMENT_ARRAY_BUFFER, 0, (GLsizeiptr)(gsVuIdxCount * sizeof(uint32_t)), gsVuIdx);
         glBindVertexArray(0);
     }
