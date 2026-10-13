@@ -331,7 +331,7 @@ static GLuint make_present_program(void) {
     glDeleteShader(f);
     glUseProgram(p);
     glUniform1i(glGetUniformLocation(p, "tex"), 0);
-    glUniform2f(glGetUniformLocation(p, "uvScale"), 512.0f / (float)GS_W, 448.0f / (float)GS_H);
+    glUniform2f(glGetUniformLocation(p, "uvScale"), 512.0f / (float)sTW, 448.0f / (float)sTH);
     sPresentInvSizeLoc = glGetUniformLocation(p, "invTextureSize");
     sPresentOutScaleLoc = glGetUniformLocation(p, "outputPixelRatio");
     sPresentFilterLoc = glGetUniformLocation(p, "filterMode");
@@ -341,6 +341,15 @@ static GLuint make_present_program(void) {
 /* ---- state -------------------------------------------------------------------------------------- */
 static SDL_Window *sWindow;
 static SDL_GLContext sCtx;
+/* On mobile, the game only draws into the first 512x512 pixels of its 1024x1024
+   GS page. Match Vulkan's smaller backing textures: 1/4 of the render-target
+   memory and tile traffic at the same visible internal resolution. Keep the
+   1024x1024 viewport below: the vertex programs still use full-page coordinates. */
+#if GL_ES
+static int sTW = 512, sTH = 512;
+#else
+static int sTW = GS_W, sTH = GS_H;
+#endif
 static GLuint sMainProg[4]; /* gs.vert / vu0 / vu4 / vu6 + gs.frag */
 static GLuint sMainProgNd[4]; /* the same with gs.frag without its discards (pipeline key bit 23, as the Vulkan back end) */
 static GLuint sOutlineProg, sKeyProg, sDclutProg, sPresentProg;
@@ -371,13 +380,13 @@ static void target_ensure(int i) {
     GLenum bufs[2] = {GL_COLOR_ATTACHMENT0, GL_COLOR_ATTACHMENT1};
     glGenTextures(1, &sTgCol[i]);
     glBindTexture(GL_TEXTURE_2D, sTgCol[i]);
-    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, GS_W * SCALE, GS_H * SCALE, 0, GL_RGBA, GL_UNSIGNED_BYTE, NULL);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, sTW * SCALE, sTH * SCALE, 0, GL_RGBA, GL_UNSIGNED_BYTE, NULL);
     glGenTextures(1, &sTgAux[i]);
     glBindTexture(GL_TEXTURE_2D, sTgAux[i]);
-    glTexImage2D(GL_TEXTURE_2D, 0, GL_R8, GS_W * SCALE, GS_H * SCALE, 0, GL_RED, GL_UNSIGNED_BYTE, NULL);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_R8, sTW * SCALE, sTH * SCALE, 0, GL_RED, GL_UNSIGNED_BYTE, NULL);
     glGenTextures(1, &sTgDep[i]);
     glBindTexture(GL_TEXTURE_2D, sTgDep[i]);
-    glTexImage2D(GL_TEXTURE_2D, 0, GL_DEPTH_COMPONENT32F, GS_W * SCALE, GS_H * SCALE, 0, GL_DEPTH_COMPONENT, GL_FLOAT, NULL);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_DEPTH_COMPONENT32F, sTW * SCALE, sTH * SCALE, 0, GL_DEPTH_COMPONENT, GL_FLOAT, NULL);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
     glGenFramebuffers(1, &sTgFbo[i]);
@@ -437,10 +446,10 @@ static GsTex white_tex(void) { return (GsTex)sWhite; }
 static void copies_create(void) {
     glGenTextures(1, &sDateCopy);
     glBindTexture(GL_TEXTURE_2D, sDateCopy);
-    glTexImage2D(GL_TEXTURE_2D, 0, GL_R8, GS_W * SCALE, GS_H * SCALE, 0, GL_RED, GL_UNSIGNED_BYTE, NULL);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_R8, sTW * SCALE, sTH * SCALE, 0, GL_RED, GL_UNSIGNED_BYTE, NULL);
     glGenTextures(1, &sAuxCopy);
     glBindTexture(GL_TEXTURE_2D, sAuxCopy);
-    glTexImage2D(GL_TEXTURE_2D, 0, GL_R8, GS_W * SCALE, GS_H * SCALE, 0, GL_RED, GL_UNSIGNED_BYTE, NULL);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_R8, sTW * SCALE, sTH * SCALE, 0, GL_RED, GL_UNSIGNED_BYTE, NULL);
 }
 
 static void scale_changed(void) {
@@ -642,6 +651,11 @@ static void gl_give_up(void) {
 static int gl_init(void) {
     static const uint32_t white = 0xFFFFFFFFu;
     int i;
+
+    if (getenv("BT3_GPU_BIG_TARGETS") != NULL) { sTW = GS_W; sTH = GS_H; }
+    gsTargetW = sTW;
+    gsTargetH = sTH;
+    fprintf(stderr, "bt3: gl: render targets %dx%d GS pixels (viewport %dx%d)\n", sTW, sTH, GS_W, GS_H);
 
 #if GL_ES
     /* OpenGL ES 3.2. (On Android the context's kind is part of the window's EGL configuration: asked for first.) */
@@ -854,7 +868,7 @@ static void present_picture(int best) {
             /* Unlike the Vulkan back end, GL used to ignore the sharp-bilinear setting.
                It is one texture sample per pixel, even at the 2x setting. */
             glUniform1i(sPresentFilterLoc, gsFilter == 1 ? 1 : 0);
-            glUniform2f(sPresentInvSizeLoc, 1.0f / (GS_W * SCALE), 1.0f / (GS_H * SCALE));
+            glUniform2f(sPresentInvSizeLoc, 1.0f / (sTW * SCALE), 1.0f / (sTH * SCALE));
             glUniform2f(sPresentOutScaleLoc, (float)w / (512.0f * SCALE), (float)h / (448.0f * SCALE));
             glBindVertexArray(sVaoGs); /* core profile needs a bound VAO to draw (the present uses no attributes) */
             glActiveTexture(GL_TEXTURE0);
@@ -977,19 +991,19 @@ static void frame_end(void) {
         if (sFbTex[i] == 0) {
             glGenTextures(1, &sFbTex[i]);
             glBindTexture(GL_TEXTURE_2D, sFbTex[i]);
-            glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, GS_W, GS_H, 0, GL_RGBA, GL_UNSIGNED_BYTE, NULL);
+            glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, sTW, sTH, 0, GL_RGBA, GL_UNSIGNED_BYTE, NULL);
             glGenFramebuffers(1, &sFbFbo[i]);
             glBindFramebuffer(GL_FRAMEBUFFER, sFbFbo[i]);
             glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, sFbTex[i], 0);
         }
-        px = malloc((size_t)GS_W * GS_H * 4);
-        for (y = 0; y < GS_H; y++) {
-            for (x = 0; x < GS_W; x++) {
-                px[y * GS_W + x] = Gs_VramRead(fbp * 32, 8, 0, x, y) | 0xFF000000u;
+        px = malloc((size_t)sTW * sTH * 4);
+        for (y = 0; y < (uint32_t)sTH; y++) {
+            for (x = 0; x < (uint32_t)sTW; x++) {
+                px[y * sTW + x] = Gs_VramRead(fbp * 32, 8, 0, x, y) | 0xFF000000u;
             }
         }
         glBindTexture(GL_TEXTURE_2D, sFbTex[i]);
-        glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, GS_W, GS_H, GL_RGBA, GL_UNSIGNED_BYTE, px);
+        glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, sTW, sTH, GL_RGBA, GL_UNSIGNED_BYTE, px);
         free(px);
     }
     gGsFbUploads = 0;
@@ -1014,7 +1028,7 @@ static void frame_end(void) {
             glBindFramebuffer(GL_READ_FRAMEBUFFER, sFbFbo[d->native - 100]);
             glBindFramebuffer(GL_DRAW_FRAMEBUFFER, sTgFbo[d->target]);
             glDrawBuffers(1, one);
-            glBlitFramebuffer(0, 0, GS_W, GS_H, 0, 0, GS_W * SCALE, GS_H * SCALE, GL_COLOR_BUFFER_BIT, GL_LINEAR);
+            glBlitFramebuffer(0, 0, sTW, sTH, 0, 0, sTW * SCALE, sTH * SCALE, GL_COLOR_BUFFER_BIT, GL_LINEAR);
             glEnable(GL_SCISSOR_TEST);
             haveScissor = 0;
             gsTargets[d->target].cleared = 1;
@@ -1036,7 +1050,7 @@ static void frame_end(void) {
             glBindFramebuffer(GL_DRAW_FRAMEBUFFER, sScratchDraw);
             glFramebufferTexture2D(GL_DRAW_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, dst, 0);
             glDrawBuffers(1, one);
-            glBlitFramebuffer(0, 0, GS_W * SCALE, GS_H * SCALE, 0, 0, GS_W * SCALE, GS_H * SCALE, GL_COLOR_BUFFER_BIT, GL_NEAREST);
+            glBlitFramebuffer(0, 0, sTW * SCALE, sTH * SCALE, 0, 0, sTW * SCALE, sTH * SCALE, GL_COLOR_BUFFER_BIT, GL_NEAREST);
             glBindFramebuffer(GL_READ_FRAMEBUFFER, 0);
             glBindFramebuffer(GL_DRAW_FRAMEBUFFER, 0);
             glEnable(GL_SCISSOR_TEST);
@@ -1063,8 +1077,8 @@ static void frame_end(void) {
             if (cur != d->target) { bind_target(d->target, 0); cur = d->target; }
             set_native(d->native);
             set_textures(sAuxCopy, 6, 0, 6, 0, 6);
-            params[0] = 1.0f / (float)GS_W;
-            params[1] = 1.0f / (float)GS_H;
+            params[0] = 1.0f / (float)sTW;
+            params[1] = 1.0f / (float)sTH;
             params[2] = 100.0f / 255.0f;
             params[3] = getenv("BT3_FX_DEBUG") != NULL ? 1.0f : 0.0f;
             set_params(params, 16);
@@ -1238,7 +1252,7 @@ static void gl_target_copy(int src, int dst) {
     glBindFramebuffer(GL_DRAW_FRAMEBUFFER, sScratchDraw);
     glFramebufferTexture2D(GL_DRAW_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, sTgCol[dst], 0);
     glDrawBuffers(1, one);
-    glBlitFramebuffer(0, 0, GS_W * SCALE, GS_H * SCALE, 0, 0, GS_W * SCALE, GS_H * SCALE, GL_COLOR_BUFFER_BIT, GL_NEAREST);
+    glBlitFramebuffer(0, 0, sTW * SCALE, sTH * SCALE, 0, 0, sTW * SCALE, sTH * SCALE, GL_COLOR_BUFFER_BIT, GL_NEAREST);
     glBindFramebuffer(GL_READ_FRAMEBUFFER, 0);
     glBindFramebuffer(GL_DRAW_FRAMEBUFFER, 0);
 }
