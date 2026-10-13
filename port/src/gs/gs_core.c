@@ -1350,6 +1350,23 @@ void Port_GsVif1Chain(uint32_t tadr, int tte) {
         if (work > worst) { worst = work; }
         if (work > 33366700ull) { over++; }
         if (++n == 60) {
+#ifdef __ANDROID__
+            /* The user can export the normal release log after a slow fight.
+               Once every three windows, show CPU/GS/driver split only when
+               > 1/3 of recent frames missed 30 FPS. No debug build needed. */
+            {
+                static unsigned slowReportWindow;
+                if (++slowReportWindow >= 3) {
+                    slowReportWindow = 0;
+                    if (over >= 20) {
+                        fprintf(stderr, "bt3: perf: %u/60 slow; avg %.1f ms, worst %.1f ms; game %.1f, GS %.1f (decode %.1f, pipeline %.1f, GPU present %.1f)\n",
+                                over, (double)sum / 60e6, (double)worst / 1e6,
+                                (double)sumGame / 60e6, (double)sumList / 60e6,
+                                (double)sumTex / 60e6, (double)sumPipe / 60e6, (double)sumEnd / 60e6);
+                    }
+                }
+            }
+#endif
             if (getenv("BT3_GS_VERBOSE") != NULL) {
                 fprintf(stderr, "time: frame %u: work per frame: average %.1f ms, worst %.1f ms, %u of 60 over the 33.4 ms budget\n",
                         sFrame, (double)sum / 60e6, (double)worst / 1e6, over);

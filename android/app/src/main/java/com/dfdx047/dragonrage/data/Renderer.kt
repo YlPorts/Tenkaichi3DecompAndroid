@@ -38,8 +38,18 @@ object Renderer {
     /** Writes "gpu_api" from the choice and the GPU (the launcher on start and on a change; the game before it starts). */
     fun apply(settings: EngineSettings, paths: GamePaths) {
         val choice = settings.get(EngineSettings.RENDERER, AUTO)
-        val api = gpuApi(choice, if (choice == AUTO) gpuName(paths) else "")
+        val gpu = if (choice == AUTO) gpuName(paths) else ""
+        val api = gpuApi(choice, gpu)
         if (settings.get(EngineSettings.GPU_API, -1) != api) settings.set(EngineSettings.GPU_API, api)
+
+        // The earlier A15 workaround automatically disabled outlines and recorded a
+        // migration flag. Their render-target coordinate bug is fixed in the shaders,
+        // so restore outlines exactly once on those existing installations.
+        // Fresh installations and later manual Outline toggles stay untouched.
+        if (settings.get("dr_outline_migrated", 0) == 1) {
+            settings.set(EngineSettings.FX_OFF, settings.get(EngineSettings.FX_OFF, 0) and 1.inv())
+            settings.set("dr_outline_migrated", 2)
+        }
     }
 
     /** GL_RENDERER from a small off-screen OpenGL ES context; null when none can be made. */

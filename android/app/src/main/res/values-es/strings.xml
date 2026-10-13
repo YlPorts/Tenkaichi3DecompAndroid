@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Spanish label for the no-postprocessing mode. Other strings use the base locale. -->
+    <string name="filter_off">Desactivado (sin filtro)</string>
+</resources>

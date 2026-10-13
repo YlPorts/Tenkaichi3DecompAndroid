@@ -274,12 +274,10 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     private var updateFile: File? = null
     private var updateJob: Job? = null
 
-    // (after the state above: properties are set up in order, and this reads _update)
-    init {
-        checkForUpdate(manual = false)
-    }
-
-    /** Looks for a newer version. At start it only speaks up when there is one; from About it also says "up to date". */
+    // Do not check for updates automatically at launch. Older GitHub release builds
+    // should not interrupt a locally tested Android port with update popups.
+    // An update check is still available manually from About.
+    /** Looks for a newer version when the player explicitly requests it. */
     fun checkForUpdate(manual: Boolean) {
         if (_update.value !is UpdateState.Idle) return
         _update.value = UpdateState.Checking

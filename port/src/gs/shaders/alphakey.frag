@@ -12,7 +12,10 @@ const vec3 kTable[11] = vec3[11]( // GfxAlphaKey_BuildClut
     vec3(0x00, 0xFF, 0x00), vec3(0x54, 0xFD, 0xFF), vec3(0xFF, 0x00, 0xFF), vec3(0x40, 0x00, 0xFF),
     vec3(0xFF, 0xFF, 0x20), vec3(0xFF, 0xFF, 0x2A), vec3(0xFF, 0xFF, 0x34));
 void main() {
-    int id = int(texture(aux, vUv).r * 255.0 + 0.5);
+    // The GPU viewport is logically 1024 wide even with a 512-wide backing target.
+    // The interpolated vUv only addresses half that target; use framebuffer pixels.
+    ivec2 xy = clamp(ivec2(gl_FragCoord.xy), ivec2(0), textureSize(aux, 0) - 1);
+    int id = int(texelFetch(aux, xy, 0).r * 255.0 + 0.5);
     if (id < 0xF4 || id == 0xFF) discard;
     outColor = vec4(kTable[id - 0xF4] / 255.0, float(0x30) / 128.0);
 }

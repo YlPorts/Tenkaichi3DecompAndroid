@@ -9,13 +9,14 @@
 # builds are 0.0.0-dev.<run>.
 #
 # Release signing: set the repository secrets DR_KEYSTORE_BASE64 (the .jks file, base64), DR_KEYSTORE_PASSWORD,
-# DR_KEY_ALIAS and DR_KEY_PASSWORD. Without them the APK is signed with a throwaway debug key, and each build
-# then has a different signature (uninstall before installing a newer one).
+# DR_KEY_ALIAS and DR_KEY_PASSWORD. Without them Gradle uses the fixed repository
+# test key (NOT a publishing identity). assembleRelease remains non-debuggable.
+# Always use the same signing certificate as the installed app for updates.
 name: android
 
 on:
   push:
-    branches: [main]
+    branches: [main, optimize/galaxy-a15-2x-mali]
     tags: ["android-v*"]
     paths: ["android/**", "port/**", "src/**", "include/**", ".github/workflows/android.yml"]
   pull_request:
@@ -38,6 +39,14 @@ jobs:
         working-directory: android
     steps:
       - uses: actions/checkout@v5
+
+      # The new filter-off option must work in both GPU backends and the UI.
+      - name: Validate no-filter integration
+        working-directory: .
+        run: |
+          grep -q 'gsFilter == 5' port/src/gs/gs_gpu.c
+          grep -q 'gsFilter == 5' port/src/gs/gs_gl.c
+          grep -q 'name="filter_off"' android/app/src/main/res/values-es/strings.xml
 
       - uses: actions/setup-java@v5
         with:
@@ -72,6 +81,8 @@ jobs:
         run: |
           if [[ "$GITHUB_REF" == refs/tags/android-v* ]]; then
             echo "DR_VERSION_NAME=${GITHUB_REF#refs/tags/android-v}" >> "$GITHUB_ENV"
+          elif [[ "$GITHUB_REF" == "refs/heads/optimize/galaxy-a15-2x-mali" || "$GITHUB_HEAD_REF" == "optimize/galaxy-a15-2x-mali" ]]; then
+            echo "DR_VERSION_NAME=0.5.0-a15.${GITHUB_RUN_NUMBER}" >> "$GITHUB_ENV"
           else
             echo "DR_VERSION_NAME=0.0.0-dev.${GITHUB_RUN_NUMBER}" >> "$GITHUB_ENV"
           fi
@@ -93,13 +104,25 @@ jobs:
               echo "DR_KEY_PASSWORD=$DR_KEY_PASSWORD"
             } >> "$GITHUB_ENV"
           else
-            echo "::warning::No signing secrets: the release APK is signed with a debug key."
+            echo "::warning::No production signing secrets: assembleRelease will use the fixed TEST signing certificate, not a production certificate."
           fi
 
       - name: Build
         run: |
           chmod +x gradlew
           ./gradlew --no-daemon assembleRelease > ../gradle.txt 2>&1 || { grep -E "^e: |error:|FAILURE|What went wrong" -A3 ../gradle.txt > ../gradle_errors.txt || true; tail -20 ../gradle.txt >> ../gradle_errors.txt; sh ../.github/annotate.sh ../gradle_errors.txt; exit 1; }
+
+      - name: Verify release APK is signed and NOT debuggable
+        run: |
+          APK="app/build/outputs/apk/release/app-release.apk"
+          BT="$(find "$ANDROID_HOME/build-tools" -mindepth 1 -maxdepth 1 -type d | sort -V | tail -1)"
+          test -s "$APK" && test -x "$BT/aapt" && test -x "$BT/apksigner"
+          if "$BT/aapt" dump badging "$APK" | grep -q 'application-debuggable'; then
+            echo "::error::Refusing to publish a debuggable APK."
+            exit 1
+          fi
+          "$BT/apksigner" verify --verbose "$APK"
+          echo "Verified: APK is signed and not debuggable (certificate may be a test key)."
 
       - name: Collect APKs
         run: |

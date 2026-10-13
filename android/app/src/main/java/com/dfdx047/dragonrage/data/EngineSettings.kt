@@ -62,7 +62,7 @@ class EngineSettings(private val file: File) {
         const val EFFECTS = "effects"             // 0..200 %, sound effects and voices
         const val METER = "meter"                 // frame-rate meter
         const val TEXTURE_PACK = "texture_pack"   // texture packs on / off, default on
-        const val FILTER = "filter"               // screen filter: 0 bilinear, 1 sharp bilinear, 2 FXAA, 3 FSR 1, 4 Snapdragon GSR
+        const val FILTER = "filter"               // screen filter: 0 bilinear, 1 sharp bilinear, 2 FXAA, 3 FSR 1, 4 GSR, 5 disabled (nearest)
 
         // Dragon Rage's own, read by the Android glue of the engine at start
         const val UNLOCK_ALL = "dr_unlock_all"    // 1: run Save_UnlockAll once on the next start, then 0

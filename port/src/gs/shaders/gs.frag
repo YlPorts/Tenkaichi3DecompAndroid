@@ -36,6 +36,9 @@ void main() {
     float a = vColor.a * k;
     if (p.mode.x != 0) {
         vec2 uv = vStq.xy / vStq.z;
+        // VU0/VU4/VU6 vertex programs always submit misc.w = 0. The
+        // full PS2-pixel art branch is unreachable for these geometry draws.
+#ifndef GS_3D_ONLY
         if (p.misc.w != 0.0) {
             // A 2D sprite: take the texture coordinate where the GS takes it, at the whole GS pixel this fragment
             // belongs to (misc.w = output pixels per GS pixel). Every output pixel of that GS pixel then shows
@@ -80,6 +83,7 @@ void main() {
                 uv = clamp(uv, p.rect.xy + inset, p.rect.zw - inset);
             }
         }
+#endif
         if (p.mode.x == 2) uv = clamp(uv, p.rect.xy, p.rect.zw);
         vec4 t = texture(tex, uv);
         if (p.mode.x == 1 || p.mode.x == 3) t.a *= k; // a texture from GS memory keeps the GS alpha (0x80 opaque, up to 0xFF)

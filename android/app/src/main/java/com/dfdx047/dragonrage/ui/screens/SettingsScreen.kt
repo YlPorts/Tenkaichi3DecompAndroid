@@ -85,7 +85,8 @@ fun SettingsScreen(vm: AppViewModel) {
             Text(stringResource(R.string.screen_filter), style = MaterialTheme.typography.titleSmall)
             ChipRow(
                 options = listOf(
-                    stringResource(R.string.filter_bilinear) to 0, stringResource(R.string.filter_sharp) to 1, "FXAA" to 2,
+                    stringResource(R.string.filter_off) to 5, stringResource(R.string.filter_bilinear) to 0,
+                    stringResource(R.string.filter_sharp) to 1, "FXAA" to 2,
                     "AMD FSR 1" to 3, "Snapdragon GSR" to 4,
                 ),
                 selected = get(EngineSettings.FILTER, 0),

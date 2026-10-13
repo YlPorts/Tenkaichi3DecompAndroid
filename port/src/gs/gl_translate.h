@@ -10,7 +10,8 @@
    (vertex inputs and fragment outputs).
    es: GLSL ES 3.20 instead (OpenGL ES 3.2, Android): default precisions, std140 uniform blocks (the C side writes
    them with that layout), gl_PointSize written (ES has no default point size).
-   nodiscard: GS_NO_DISCARD defined (gs.frag without its discards, as the Vulkan back end's second shader).
+   nodiscard bit 0: GS_NO_DISCARD (no alpha test and DATE); bit 1: GS_3D_ONLY
+   (skip 2D GS-pixel art sampling, which VU1 geometry never uses).
    clip_control: the context has glClipControl(GL_ZERO_TO_ONE), so z need not be moved to OpenGL's range. */
 static char *gl_translate(const char *src, int is_vertex, int es, int nodiscard, int clip_control) {
     size_t cap = strlen(src) + 512, len = 0;
@@ -22,7 +23,8 @@ static char *gl_translate(const char *src, int is_vertex, int es, int nodiscard,
     while (*p) {
         if (!strncmp(p, "#version 450", 12)) {
             PUSH(es ? "#version 320 es\nprecision highp float;\nprecision highp int;\nprecision highp sampler2D;" : "#version 330 core");
-            if (nodiscard) { PUSH("\n#define GS_NO_DISCARD 1"); }
+            if (nodiscard & 1) { PUSH("\n#define GS_NO_DISCARD 1"); }
+            if (!is_vertex && (nodiscard & 2)) { PUSH("\n#define GS_3D_ONLY 1"); }
             p += 12;
             continue;
         }
