@@ -562,6 +562,11 @@ static int sCurSamp0, sCurSamp1;
 static int haveScissor = 0;
 static int lastScissor[4];
 static float lastBlendc = -1.0f;
+/* GLSL PS2 pipeline variants frequently share the same blend, mask and depth
+   state. Cache these separately so a pipeline switch is not another group
+   of driver calls on Mali. Native effects and new frames invalidate all. */
+static uint32_t sAppliedBlend = UINT32_MAX, sAppliedMasks = UINT32_MAX;
+static int sAppliedDepth = -1;
 
 static void apply_blend(uint32_t bkey) {
     int k[2] = {(int)((bkey >> 1) & 7), (int)((bkey >> 4) & 7)}, C = (int)((bkey >> 7) & 3), i;
@@ -619,20 +624,34 @@ static void set_pipe(int pipe) {
         GLuint prog = p->fx ? sDclutProg : p->nd && sMainProgNd[p->vu] != 0 ? sMainProgNd[p->vu] : sMainProg[p->vu];
         if (sCurProgram != prog) { sCurProgram = prog; glUseProgram(prog); }
     }
-    apply_blend(p->bkey);
-    apply_masks(p->wmask);
-    if (p->fx) {
-        glDisable(GL_DEPTH_TEST);
-        glDepthMask(GL_FALSE);
-    } else {
-        glEnable(GL_DEPTH_TEST);
-        glDepthMask(p->zwrite ? GL_TRUE : GL_FALSE);
-        glDepthFunc(p->ztst == 0 ? GL_NEVER : p->ztst == 1 ? GL_ALWAYS : p->ztst == 2 ? GL_GEQUAL : GL_GREATER);
+    if (sAppliedBlend != p->bkey) {
+        apply_blend(p->bkey);
+        sAppliedBlend = p->bkey;
+    }
+    if (sAppliedMasks != p->wmask) {
+        apply_masks(p->wmask);
+        sAppliedMasks = p->wmask;
+    }
+    {
+        int depth = p->fx ? 0 : (1 | (p->zwrite << 1) | (p->ztst << 2));
+        if (sAppliedDepth != depth) {
+            if (p->fx) {
+                glDisable(GL_DEPTH_TEST);
+                glDepthMask(GL_FALSE);
+            } else {
+                glEnable(GL_DEPTH_TEST);
+                glDepthMask(p->zwrite ? GL_TRUE : GL_FALSE);
+                glDepthFunc(p->ztst == 0 ? GL_NEVER : p->ztst == 1 ? GL_ALWAYS : p->ztst == 2 ? GL_GEQUAL : GL_GREATER);
+            }
+            sAppliedDepth = depth;
+        }
     }
 }
 
 static void set_native(int effect) {
     sCurPipe = -1;
+    sAppliedBlend = sAppliedMasks = UINT32_MAX;
+    sAppliedDepth = -1;
     glDisable(GL_DEPTH_TEST);
     glDepthMask(GL_FALSE);
     if (sHasIndexed) { glEnablei(GL_BLEND, 0); glDisablei(GL_BLEND, 1); } else { glEnable(GL_BLEND); }
@@ -1123,6 +1142,8 @@ static void frame_end(void) {
 
     glBindVertexArray(sVaoGs);
     sCurPipe = -1;
+    sAppliedBlend = sAppliedMasks = UINT32_MAX;
+    sAppliedDepth = -1;
     sCurProgram = 0;
     sCurTex0 = sCurTex1 = sCurTex2 = 0;
     sCurSamp0 = sCurSamp1 = -1;
