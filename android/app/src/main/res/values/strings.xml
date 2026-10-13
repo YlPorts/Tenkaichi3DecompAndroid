@@ -119,6 +119,7 @@
     <string name="resolution">Internal resolution</string>
     <string name="resolution_hint">1x is the PS2\'s own resolution. On phones and handhelds, 2x or 3x is usually the sweet spot; on weaker GPUs (Mali, Adreno 6xx), try 1.25x to 1.75x.</string>
     <string name="screen_filter">Screen filter</string>
+    <string name="filter_off">Disabled (no filter)</string>
     <string name="filter_bilinear">Bilinear</string>
     <string name="filter_sharp">Sharp bilinear</string>
     <string name="screen_filter_hint">FXAA smooths jagged edges. FSR and Snapdragon GSR upscale with sharper edges: best with an internal resolution below the screen\'s (1x to 2x), so they also help weaker GPUs.</string>
