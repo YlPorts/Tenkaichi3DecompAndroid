@@ -38,8 +38,21 @@ object Renderer {
     /** Writes "gpu_api" from the choice and the GPU (the launcher on start and on a change; the game before it starts). */
     fun apply(settings: EngineSettings, paths: GamePaths) {
         val choice = settings.get(EngineSettings.RENDERER, AUTO)
-        val api = gpuApi(choice, if (choice == AUTO) gpuName(paths) else "")
+        // Detect the GPU even for a manually selected renderer: the outline corruption
+        // affects Mali regardless of whether the user runs OpenGL ES or Vulkan.
+        val gpu = gpuName(paths)
+        val api = gpuApi(choice, gpu)
         if (settings.get(EngineSettings.GPU_API, -1) != api) settings.set(EngineSettings.GPU_API, api)
+
+        // The native outline pass can turn stale object IDs into long black silhouettes.
+        // Disable just that optional effect ONCE on Mali. Keep the player's choice after
+        // this migration: the normal "Outline" toggle can still turn it back on.
+        // Do not change resolution, glow, bloom, or other PS2 effects.
+        if (isMali(gpu) && settings.get("dr_outline_migrated", 0) == 0) {
+            val fxOff = settings.get(EngineSettings.FX_OFF, 0)
+            settings.set(EngineSettings.FX_OFF, fxOff or 1)
+            settings.set("dr_outline_migrated", 1)
+        }
     }
 
     /** GL_RENDERER from a small off-screen OpenGL ES context; null when none can be made. */
