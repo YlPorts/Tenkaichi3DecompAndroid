@@ -81,6 +81,7 @@ typedef void GLvoid; typedef ptrdiff_t GLsizeiptr; typedef ptrdiff_t GLintptr; t
     X(glGetUniformBlockIndex, GLuint, (GLuint, const GLchar *), (GLuint, const GLchar *)) \
     X(glUniformBlockBinding, void, (GLuint, GLuint, GLuint), (GLuint, GLuint, GLuint)) \
     X(glBindBufferBase, void, (GLenum, GLuint, GLuint), (GLenum, GLuint, GLuint)) \
+    X(glBindBufferRange, void, (GLenum, GLuint, GLuint, GLintptr, GLsizeiptr), (GLenum, GLuint, GLuint, GLintptr, GLsizeiptr)) \
     X(glGenBuffers, void, (GLsizei, GLuint *), (GLsizei, GLuint *)) \
     X(glBindBuffer, void, (GLenum, GLuint), (GLenum, GLuint)) \
     X(glBufferData, void, (GLenum, GLsizeiptr, const void *, GLenum), (GLenum, GLsizeiptr, const void *, GLenum)) \
@@ -159,6 +160,7 @@ GL_FUNCS(GL_DECL)
 #define GL_STREAM_DRAW 0x88E0
 #define GL_DYNAMIC_DRAW 0x88E8
 #define GL_UNIFORM_BUFFER 0x8A11
+#define GL_UNIFORM_BUFFER_OFFSET_ALIGNMENT 0x8A34
 #define GL_FRAGMENT_SHADER 0x8B30
 #define GL_VERTEX_SHADER 0x8B31
 #define GL_COMPILE_STATUS 0x8B81
@@ -355,6 +357,33 @@ static GLuint sVaoGs, sVaoVu, sVboGs, sVboVu, sIboVu;
 static GLuint sSamplers[16];
 static GLuint sWhite;
 static GLuint sUboU, sUboParams;
+/* Each VU draw used to overwrite the same UBO, synchronizing the Mali driver
+   hundreds of times per frame. Upload immutable per-frame uniforms once into
+   an aligned stream and select them via glBindBufferRange. */
+static uint8_t *sVuUniformPacked;
+static size_t sVuUniformPackedCapacity, sVuUniformStride;
+static int sVuUniformStream;
+static void upload_vu_uniforms(void) {
+    uint32_t i;
+    size_t bytes;
+    if (!sVuUniformStream || gsVuUniCount == 0) return;
+    bytes = (size_t)gsVuUniCount * sVuUniformStride;
+    if (bytes > sVuUniformPackedCapacity) {
+        uint8_t *newMem = (uint8_t *)realloc(sVuUniformPacked, bytes);
+        if (newMem == NULL) {
+            sVuUniformStream = 0; /* leave the old per-draw upload path available */
+            return;
+        }
+        sVuUniformPacked = newMem;
+        sVuUniformPackedCapacity = bytes;
+    }
+    for (i = 0; i < gsVuUniCount; i++) {
+        memcpy(sVuUniformPacked + (size_t)i * sVuUniformStride, &gsVuUni[i], sizeof(Vu0Uniform));
+    }
+    glBindBuffer(GL_UNIFORM_BUFFER, sUboU);
+    glBufferData(GL_UNIFORM_BUFFER, (GLsizeiptr)bytes, NULL, GL_STREAM_DRAW); /* orphan: don't stall previous frame */
+    glBufferSubData(GL_UNIFORM_BUFFER, 0, (GLsizeiptr)bytes, sVuUniformPacked);
+}
 static GLuint sTgCol[MAX_TARGETS], sTgAux[MAX_TARGETS], sTgDep[MAX_TARGETS], sTgFbo[MAX_TARGETS];
 static GLuint sDateCopy, sAuxCopy;
 static GLuint sScratchRead, sScratchDraw;
@@ -774,6 +803,15 @@ static int gl_init(void) {
     glBindBuffer(GL_UNIFORM_BUFFER, sUboU);
     glBufferData(GL_UNIFORM_BUFFER, sizeof(Vu0Uniform), NULL, GL_DYNAMIC_DRAW);
     glBindBufferBase(GL_UNIFORM_BUFFER, 0, sUboU);
+    {
+        GLint align = 0;
+        glGetIntegerv(GL_UNIFORM_BUFFER_OFFSET_ALIGNMENT, &align);
+        if (align >= 1) {
+            size_t a = (size_t)align;
+            sVuUniformStride = ((sizeof(Vu0Uniform) + a - 1) / a) * a;
+            sVuUniformStream = 1;
+        }
+    }
     glGenBuffers(1, &sUboParams);
     glBindBuffer(GL_UNIFORM_BUFFER, sUboParams);
     glBufferData(GL_UNIFORM_BUFFER, 64, NULL, GL_DYNAMIC_DRAW);
@@ -1017,6 +1055,7 @@ static void frame_end(void) {
         free(px);
     }
     gGsFbUploads = 0;
+    upload_vu_uniforms();
 
     glBindVertexArray(sVaoGs);
     sCurPipe = -1;
@@ -1116,7 +1155,13 @@ static void frame_end(void) {
         /* Uniform entries are immutable until this frame's draw list has finished.
            Avoid repeated GL buffer updates when several primitives share one VU state. */
         if (d->vu && lastVuUniform != (int)d->uniform) {
-            set_uniform_u(&gsVuUni[d->uniform]);
+            if (sVuUniformStream) {
+                glBindBufferRange(GL_UNIFORM_BUFFER, 0, sUboU,
+                    (GLintptr)((size_t)d->uniform * sVuUniformStride),
+                    (GLsizeiptr)sizeof(Vu0Uniform));
+            } else {
+                set_uniform_u(&gsVuUni[d->uniform]);
+            }
             lastVuUniform = (int)d->uniform;
         }
         memset(&fu, 0, sizeof(fu));
