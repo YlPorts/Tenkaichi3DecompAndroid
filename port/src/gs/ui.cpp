@@ -647,15 +647,15 @@ static void video_tab(PortVideo &v) {
     }
     ImGui::SetItemTooltip("How finely the game is drawn. 1x is the PlayStation 2's own resolution.\nHigher is sharper and uses more video memory.");
     {
-        static const char *filters[] = {"Bilinear", "Sharp bilinear", "FXAA (smooths jagged edges)", "AMD FSR 1", "Snapdragon GSR"};
-        int f = v.filter < 0 || v.filter > 4 ? 0 : v.filter;
+        static const char *filters[] = {"Bilinear", "Sharp bilinear", "FXAA (smooths jagged edges)", "AMD FSR 1", "Snapdragon GSR", "Desactivado (no filter)"};
+        int f = v.filter < 0 || v.filter > 5 ? 0 : v.filter;
         if (ImGui::BeginCombo("Screen filter", filters[f])) {
-            for (int n = 0; n < 5; n++) {
+            for (int n = 0; n < (int)(sizeof(filters) / sizeof(filters[0])); n++) {
                 if (ImGui::Selectable(filters[n], n == f)) { v.filter = n; }
             }
             ImGui::EndCombo();
         }
-        ImGui::SetItemTooltip("How the game's picture is scaled to the screen.\nFXAA smooths jagged edges; FSR and Snapdragon GSR upscale with sharper edges,\nbest with an internal resolution below the screen's (1x to 2x).");
+        ImGui::SetItemTooltip("Desactivado: unfiltered nearest-neighbor scaling.\nFXAA smooths jagged edges; FSR and Snapdragon GSR upscale with sharper edges,\nbest with an internal resolution below the screen's (1x to 2x).");
     }
     {   // the entry that is the picture's shape: the exact one (0 = the screen's, Android), else the nearest
         int bestd = 1 << 30;
