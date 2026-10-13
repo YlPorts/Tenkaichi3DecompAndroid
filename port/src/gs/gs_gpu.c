@@ -782,7 +782,8 @@ static void filter_pass(SDL_GPUCommandBuffer *cmd, SDL_GPUTexture *dst, SDL_GPUG
 static int show_filtered(SDL_GPUCommandBuffer *cmd, int best, SDL_GPUTexture *swap, Uint32 dx, Uint32 dy, Uint32 w, Uint32 h) {
     float texW = (float)sTW * SCALE, texH = (float)sTH * SCALE, inW = 512.0f * SCALE, inH = 448.0f * SCALE;
     SDL_GPUSampler *lin = sSamplers[7], *near = sSamplers[6];
-    if (gsFilter == 0 || w == 0 || h == 0 || !filters_make()) {
+    /* Disabled (5) bypasses all screen shaders, including FSR/FXAA. */
+    if (gsFilter == 0 || gsFilter == 5 || w == 0 || h == 0 || !filters_make()) {
         return 0;
     }
     if (gsFilter == 3 && sEasuPipe != NULL && sRcasPipe != NULL) { /* AMD FSR 1: EASU to the shown size, then RCAS */
@@ -870,7 +871,8 @@ static void show_target(SDL_GPUCommandBuffer *cmd, int best, SDL_GPUTexture *swa
     bl.destination.h = h;
     bl.clear_color.a = 1.0f;
     bl.load_op = SDL_GPU_LOADOP_CLEAR;
-    bl.filter = SDL_GPU_FILTER_LINEAR;
+    /* No filter = unprocessed image, scaled with nearest-neighbour sampling. */
+    bl.filter = gsFilter == 5 ? SDL_GPU_FILTER_NEAREST : SDL_GPU_FILTER_LINEAR;
     if (!show_filtered(cmd, best, swap, bl.destination.x, bl.destination.y, w, h)) {
         SDL_BlitGPUTexture(cmd, &bl);
     }
