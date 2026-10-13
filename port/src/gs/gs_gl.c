@@ -363,6 +363,47 @@ static GLuint sUboU, sUboParams;
 static uint8_t *sVuUniformPacked;
 static size_t sVuUniformPackedCapacity, sVuUniformStride;
 static int sVuUniformStream;
+/* The fragment Params UBO was previously overwritten for almost every one
+   of ~2,100 draws in a fight. Keep one immutable, offset-aligned slot per draw
+   in the frame, uploaded in a single batch, so the Mali driver need not wait
+   for a previous draw to finish reading the same 64-byte buffer. */
+static uint8_t *sFragParamsPacked;
+static size_t sFragParamsCapacity, sFragParamsStride;
+static int sFragStream, sFragReady;
+static void upload_fragment_params(void) {
+    uint32_t k;
+    size_t bytes;
+    if (!sFragStream || gsDrawCount == 0) return;
+    bytes = (size_t)gsDrawCount * sFragParamsStride;
+    if (bytes > sFragParamsCapacity) {
+        uint8_t *p = (uint8_t *)realloc(sFragParamsPacked, bytes);
+        if (!p) { sFragStream = 0; return; } /* legacy path still works */
+        sFragParamsPacked = p;
+        sFragParamsCapacity = bytes;
+    }
+    for (k = 0; k < gsDrawCount; k++) {
+        const GsDraw *d = &gsDraws[k];
+        uint8_t *dst = sFragParamsPacked + (size_t)k * sFragParamsStride;
+        if (d->native >= 100 || d->native == 4 || d->native == 5) continue;
+        if (d->native == 3) {
+            float p[4] = {(float)d->src, d->misc[0], 0.0f, 0.0f};
+            memcpy(dst, p, sizeof(p));
+        } else if (d->native) {
+            float p[4] = {1.0f / (float)sTW, 1.0f / (float)sTH, 100.0f / 255.0f,
+                          getenv("BT3_FX_DEBUG") ? 1.0f : 0.0f};
+            memcpy(dst, p, sizeof(p));
+        } else {
+            memcpy(dst, d->mode, sizeof(d->mode));
+            memcpy(dst + 16, d->misc, sizeof(d->misc));
+            memcpy(dst + 32, d->rect, sizeof(d->rect));
+            memcpy(dst + 48, d->orig, sizeof(d->orig));
+        }
+    }
+    glBindBuffer(GL_UNIFORM_BUFFER, sUboParams);
+    glBufferData(GL_UNIFORM_BUFFER, (GLsizeiptr)bytes, NULL, GL_STREAM_DRAW);
+    glBufferSubData(GL_UNIFORM_BUFFER, 0, (GLsizeiptr)bytes, sFragParamsPacked);
+    sFragReady = 1;
+}
 static void upload_vu_uniforms(void) {
     uint32_t i;
     size_t bytes;
@@ -552,9 +593,16 @@ static void apply_masks(uint32_t wmask) {
     }
 }
 
-static void set_params(const void *p, size_t n) {
-    glBindBuffer(GL_UNIFORM_BUFFER, sUboParams);
-    glBufferSubData(GL_UNIFORM_BUFFER, 0, (GLsizeiptr)n, p);
+static void set_params(const void *p, size_t n, uint32_t drawIndex) {
+    if (sFragReady) {
+        glBindBufferRange(GL_UNIFORM_BUFFER, 1, sUboParams,
+            (GLintptr)((size_t)drawIndex * sFragParamsStride), (GLsizeiptr)64);
+    } else {
+        /* Restore base binding if a previous frame used a uniform range. */
+        glBindBufferBase(GL_UNIFORM_BUFFER, 1, sUboParams);
+        glBindBuffer(GL_UNIFORM_BUFFER, sUboParams);
+        glBufferSubData(GL_UNIFORM_BUFFER, 0, (GLsizeiptr)n, p);
+    }
 }
 
 static void set_uniform_u(const Vu0Uniform *u) {
@@ -816,6 +864,19 @@ static int gl_init(void) {
     glBindBuffer(GL_UNIFORM_BUFFER, sUboParams);
     glBufferData(GL_UNIFORM_BUFFER, 64, NULL, GL_DYNAMIC_DRAW);
     glBindBufferBase(GL_UNIFORM_BUFFER, 1, sUboParams);
+    if (sVuUniformStride != 0) {
+        size_t a = sVuUniformStride;
+        /* Uniform offset alignment divides the VU stride and is also used for
+           the 64-byte fragment Params slots; keep the opt-out reversible. */
+        GLint align = 0;
+        glGetIntegerv(GL_UNIFORM_BUFFER_OFFSET_ALIGNMENT, &align);
+        if (align > 0 && (getenv("BT3_GL_FRAG_STREAM") == NULL ||
+            atoi(getenv("BT3_GL_FRAG_STREAM")) != 0)) {
+            a = (size_t)align;
+            sFragParamsStride = ((64 + a - 1) / a) * a;
+            sFragStream = GL_ES;
+        }
+    }
 
     for (i = 0; i < 16; i++) {
         int lin = (i & 1) != 0;
@@ -1055,7 +1116,9 @@ static void frame_end(void) {
         free(px);
     }
     gGsFbUploads = 0;
+    sFragReady = 0;
     upload_vu_uniforms();
+    upload_fragment_params();
 
     glBindVertexArray(sVaoGs);
     sCurPipe = -1;
@@ -1113,7 +1176,7 @@ static void frame_end(void) {
             if (cur != d->target) { bind_target(d->target, 0); cur = d->target; }
             set_pipe(d->pipeline);
             set_textures(sTgDep[d->target], 6, sAuxCopy, 6, (GLuint)d->tex, 6);
-            set_params(params, 16);
+            set_params(params, 16, n);
             haveFu = 0; /* the Params block now holds this pass's: the next primitive sends its own again */
             if (d->blendc != lastBlendc) { glBlendColor(d->blendc, d->blendc, d->blendc, d->blendc); lastBlendc = d->blendc; }
             set_scissor(d->scissor);
@@ -1130,7 +1193,7 @@ static void frame_end(void) {
             params[1] = 1.0f / (float)sTH;
             params[2] = 100.0f / 255.0f;
             params[3] = getenv("BT3_FX_DEBUG") != NULL ? 1.0f : 0.0f;
-            set_params(params, 16);
+            set_params(params, 16, n);
             haveFu = 0;
             set_scissor(d->scissor);
             glDrawArrays(GL_TRIANGLES, 0, 3);
@@ -1170,7 +1233,7 @@ static void frame_end(void) {
         memcpy(fu.rect, d->rect, sizeof(fu.rect));
         memcpy(fu.orig, d->orig, sizeof(fu.orig));
         if (!haveFu || memcmp(&fu, &lastFu, sizeof(fu)) != 0) {
-            set_params(&fu, sizeof(fu));
+            set_params(&fu, sizeof(fu), n);
             memcpy(&lastFu, &fu, sizeof(fu));
             haveFu = 1;
         }
