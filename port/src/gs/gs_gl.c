@@ -279,6 +279,9 @@ static GLuint make_program(const unsigned char *vsrc, const unsigned char *fsrc,
     return p;
 }
 
+/* The small OpenGL presentation shader has a cheap one-tap sharp-bilinear mode. */
+static GLint sPresentInvSizeLoc = -1, sPresentOutScaleLoc = -1, sPresentFilterLoc = -1;
+
 /* The present: one textured full-screen triangle sampling the shown buffer's colour, drawn with the viewport
    set to the letterboxed rectangle. (A textured quad, as the OpenGL framebuffer guide does it, instead of a
    scaled/flipped blit.) */
@@ -293,7 +296,21 @@ static GLuint make_present_program(void) {
         "    vUv = vec2((p.x + 1.0) * 0.5, (1.0 - p.y) * 0.5);\n"  /* y flipped: the scene's top row to the window's top */
         "    gl_Position = vec4(p, 0.0, 1.0);\n}\n";
     static const char *fs = PRESENT_HEAD "in vec2 vUv;\nout vec4 o;\nuniform sampler2D tex;\nuniform vec2 uvScale;\n"
-        "void main() { o = texture(tex, vUv * uvScale); }\n";
+        "uniform vec2 invTextureSize;\nuniform vec2 outputPixelRatio;\nuniform int filterMode;\n"
+        "void main() {\n"
+        "    vec2 uv = vUv * uvScale;\n"
+        "    if (filterMode == 1) {\n"
+        "        vec2 pos = uv / invTextureSize;\n"
+        "        vec2 base = floor(pos);\n"
+        "        vec2 delta = pos - base - vec2(0.5);\n"
+        "        vec2 stepScale = max(outputPixelRatio, vec2(1.0));\n"
+        "        vec2 inner = vec2(0.5) - vec2(0.5) / stepScale;\n"
+        "        vec2 f = (delta - clamp(delta, -inner, inner)) * stepScale + vec2(0.5);\n"
+        "        o = texture(tex, (base + f) * invTextureSize);\n"
+        "    } else {\n"
+        "        o = texture(tex, uv);\n"
+        "    }\n"
+        "}\n";
     GLuint v = compile(GL_VERTEX_SHADER, vs, "present.vs"), f = compile(GL_FRAGMENT_SHADER, fs, "present.fs"), p;
     GLint ok = 0;
     p = glCreateProgram();
@@ -315,6 +332,9 @@ static GLuint make_present_program(void) {
     glUseProgram(p);
     glUniform1i(glGetUniformLocation(p, "tex"), 0);
     glUniform2f(glGetUniformLocation(p, "uvScale"), 512.0f / (float)GS_W, 448.0f / (float)GS_H);
+    sPresentInvSizeLoc = glGetUniformLocation(p, "invTextureSize");
+    sPresentOutScaleLoc = glGetUniformLocation(p, "outputPixelRatio");
+    sPresentFilterLoc = glGetUniformLocation(p, "filterMode");
     return p;
 }
 
@@ -831,6 +851,11 @@ static void present_picture(int best) {
             glDisable(GL_BLEND);
             glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
             glUseProgram(sPresentProg);
+            /* Unlike the Vulkan back end, GL used to ignore the sharp-bilinear setting.
+               It is one texture sample per pixel, even at the 2x setting. */
+            glUniform1i(sPresentFilterLoc, gsFilter == 1 ? 1 : 0);
+            glUniform2f(sPresentInvSizeLoc, 1.0f / (GS_W * SCALE), 1.0f / (GS_H * SCALE));
+            glUniform2f(sPresentOutScaleLoc, (float)w / (512.0f * SCALE), (float)h / (448.0f * SCALE));
             glBindVertexArray(sVaoGs); /* core profile needs a bound VAO to draw (the present uses no attributes) */
             glActiveTexture(GL_TEXTURE0);
             glBindTexture(GL_TEXTURE_2D, sTgCol[best]);
@@ -886,6 +911,7 @@ int GsGl_PauseFrame(void) {
 static void frame_end(void) {
     SDL_Event ev;
     int cur = -1, best = -1, i;
+    int lastVuUniform = -1, lastVaoVu = 0;
     uint32_t n;
     struct { int32_t mode[4]; float misc[4]; float rect[4]; float orig[4]; } fu, lastFu;
     int haveFu = 0;
@@ -1059,8 +1085,16 @@ static void frame_end(void) {
             gsTargets[d->target].cleared = 1;
         }
         set_pipe(d->pipeline);
-        glBindVertexArray(d->vu ? sVaoVu : sVaoGs);
-        if (d->vu) { set_uniform_u(&gsVuUni[d->uniform]); }
+        if (d->vu != lastVaoVu) {
+            glBindVertexArray(d->vu ? sVaoVu : sVaoGs);
+            lastVaoVu = d->vu;
+        }
+        /* Uniform entries are immutable until this frame's draw list has finished.
+           Avoid repeated GL buffer updates when several primitives share one VU state. */
+        if (d->vu && lastVuUniform != (int)d->uniform) {
+            set_uniform_u(&gsVuUni[d->uniform]);
+            lastVuUniform = (int)d->uniform;
+        }
         memset(&fu, 0, sizeof(fu));
         memcpy(fu.mode, d->mode, sizeof(fu.mode));
         memcpy(fu.misc, d->misc, sizeof(fu.misc));
