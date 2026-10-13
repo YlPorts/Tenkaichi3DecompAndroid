@@ -1044,6 +1044,9 @@ static void frame_end(void) {
     int cur = -1, best = -1, i;
     int lastVuUniform = -1, lastVaoVu = 0;
     uint32_t n;
+    uint64_t tUploadsBegin, tReplayBegin, tPresentBegin, tPresented;
+    static uint64_t totalUploadNs, totalReplayNs, totalPresentNs;
+    static unsigned slowSamples;
     struct { int32_t mode[4]; float misc[4]; float rect[4]; float orig[4]; } fu, lastFu;
     int haveFu = 0;
     /* On 4GB Mali phones, orphan only the vertices actually recorded THIS
@@ -1098,6 +1101,7 @@ static void frame_end(void) {
         }
     }
 
+    tUploadsBegin = SDL_GetTicksNS();
     if (gsVertCount != 0) {
         glBindBuffer(GL_ARRAY_BUFFER, sVboGs);
         if (streamOrphan) { glBufferData(GL_ARRAY_BUFFER, (GLsizeiptr)(gsVertCount * sizeof(Vtx)), NULL, GL_STREAM_DRAW); }
@@ -1139,6 +1143,7 @@ static void frame_end(void) {
     sFragReady = 0;
     upload_vu_uniforms();
     upload_fragment_params();
+    tReplayBegin = SDL_GetTicksNS();
 
     glBindVertexArray(sVaoGs);
     sCurPipe = -1;
@@ -1269,6 +1274,7 @@ static void frame_end(void) {
         }
     }
 
+    tPresentBegin = SDL_GetTicksNS();
     /* the shown buffer: the one sceGsSwapDBuff set up for this frame, else the first target */
     best = gGsMainFbp >= 0 ? GsDraw_TargetGet((uint32_t)gGsMainFbp, 0) : -1;
     for (i = 0; best < 0 && i < gsTargetCount; i++) { best = i; }
@@ -1278,6 +1284,25 @@ static void frame_end(void) {
     present_picture(best);
     Ui_DrawGL(); /* the overlay, over the presented picture */
     SDL_GL_SwapWindow(sWindow);
+#ifdef __ANDROID__
+    /* CPU-side GL driver calls only; this is NOT a query for actual GPU time.
+       Log averages during fights, not an expensive per-draw trace. */
+    tPresented = SDL_GetTicksNS();
+    if (gsDrawCount >= 500) {
+        totalUploadNs += tReplayBegin - tUploadsBegin;
+        totalReplayNs += tPresentBegin - tReplayBegin;
+        totalPresentNs += tPresented - tPresentBegin;
+        if (++slowSamples == 90) {
+            fprintf(stderr, "bt3: gl phases: %u draws; uploads %.1f ms, replay/driver %.1f ms, present/swap %.1f ms (CPU time/frame over 90 combat frames)\n",
+                    gsDrawCount, (double)totalUploadNs / 90e6, (double)totalReplayNs / 90e6,
+                    (double)totalPresentNs / 90e6);
+            slowSamples = 0;
+            totalUploadNs = totalReplayNs = totalPresentNs = 0;
+        }
+    }
+#else
+    (void)tPresented;
+#endif
     /* BT3_GL_WINSHOT=<n>: dump the window's own framebuffer every n frames (what the user sees) */
     if (getenv("BT3_GL_WINSHOT") != NULL && atoi(getenv("BT3_GL_WINSHOT")) > 0 && (int)gGsFrame % atoi(getenv("BT3_GL_WINSHOT")) == 0) {
         int sw, sh, x, y;
