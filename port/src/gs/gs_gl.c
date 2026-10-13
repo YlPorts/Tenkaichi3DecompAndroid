@@ -817,9 +817,9 @@ static int gl_init(void) {
     if (!sHasIndexed) { fprintf(stderr, "bt3: gl: no per-attachment blend/mask (GL 3.0 indexed): the aux byte may be wrong\n"); }
 
     sMainProg[0] = make_program(kGsVertGlsl, kGsFragGlsl, "gs", sGsSamplers, 2, 0);
-    sMainProg[1] = make_program(kVu0VertGlsl, kGsFragGlsl, "vu0", sGsSamplers, 2, 0);
-    sMainProg[2] = make_program(kVu4VertGlsl, kGsFragGlsl, "vu4", sGsSamplers, 2, 0);
-    sMainProg[3] = make_program(kVu6VertGlsl, kGsFragGlsl, "vu6", sGsSamplers, 2, 0);
+    sMainProg[1] = make_program(kVu0VertGlsl, kGsFragGlsl, "vu0-3d", sGsSamplers, 2, 2);
+    sMainProg[2] = make_program(kVu4VertGlsl, kGsFragGlsl, "vu4-3d", sGsSamplers, 2, 2);
+    sMainProg[3] = make_program(kVu6VertGlsl, kGsFragGlsl, "vu6-3d", sGsSamplers, 2, 2);
     sOutlineProg = make_program(kFxVertGlsl, kOutlineFragGlsl, "outline", sOneSampler, 1, 0);
     sKeyProg = make_program(kFxVertGlsl, kAlphakeyFragGlsl, "alphakey", sOneSampler, 1, 0);
     sDclutProg = make_program(kFxVertGlsl, kDclutFragGlsl, "dclut", sDclutSamplers, 3, 0);
@@ -827,9 +827,9 @@ static int gl_init(void) {
        early (BT3_GPU_DISCARD=1: always the one with discard) */
     if (getenv("BT3_GPU_DISCARD") == NULL) {
         sMainProgNd[0] = make_program(kGsVertGlsl, kGsFragGlsl, "gs-nd", sGsSamplers, 2, 1);
-        sMainProgNd[1] = make_program(kVu0VertGlsl, kGsFragGlsl, "vu0-nd", sGsSamplers, 2, 1);
-        sMainProgNd[2] = make_program(kVu4VertGlsl, kGsFragGlsl, "vu4-nd", sGsSamplers, 2, 1);
-        sMainProgNd[3] = make_program(kVu6VertGlsl, kGsFragGlsl, "vu6-nd", sGsSamplers, 2, 1);
+        sMainProgNd[1] = make_program(kVu0VertGlsl, kGsFragGlsl, "vu0-nd-3d", sGsSamplers, 2, 3);
+        sMainProgNd[2] = make_program(kVu4VertGlsl, kGsFragGlsl, "vu4-nd-3d", sGsSamplers, 2, 3);
+        sMainProgNd[3] = make_program(kVu6VertGlsl, kGsFragGlsl, "vu6-nd-3d", sGsSamplers, 2, 3);
     }
     sPresentProg = make_present_program();
     if (sGlFailed) {
