@@ -1027,9 +1027,10 @@ static void frame_end(void) {
     uint32_t n;
     struct { int32_t mode[4]; float misc[4]; float rect[4]; float orig[4]; } fu, lastFu;
     int haveFu = 0;
-    /* Avoid waiting for the Mali GPU to finish reading the previous frame's
-       streaming buffers before uploading fresh vertices. Can be reverted with
-       BT3_GL_ORPHAN=0 for driver troubleshooting. */
+    /* On 4GB Mali phones, orphan only the vertices actually recorded THIS
+       frame, not the entire 32MB GS + 24MB VU + 4MB index capacities.
+       The latter caused enormous transient driver allocations in fights.
+       BT3_GL_ORPHAN=0 retains the original fixed-capacity upload behaviour. */
     static int streamOrphan = -1;
     if (streamOrphan < 0) {
         const char *opt = getenv("BT3_GL_ORPHAN");
@@ -1080,17 +1081,17 @@ static void frame_end(void) {
 
     if (gsVertCount != 0) {
         glBindBuffer(GL_ARRAY_BUFFER, sVboGs);
-        if (streamOrphan) { glBufferData(GL_ARRAY_BUFFER, MAX_VERTS * sizeof(Vtx), NULL, GL_STREAM_DRAW); }
+        if (streamOrphan) { glBufferData(GL_ARRAY_BUFFER, (GLsizeiptr)(gsVertCount * sizeof(Vtx)), NULL, GL_STREAM_DRAW); }
         glBufferSubData(GL_ARRAY_BUFFER, 0, (GLsizeiptr)(gsVertCount * sizeof(Vtx)), gsVerts);
     }
     if (gsVuVertCount != 0) {
         glBindBuffer(GL_ARRAY_BUFFER, sVboVu);
-        if (streamOrphan) { glBufferData(GL_ARRAY_BUFFER, MAX_VU_VERTS * 48, NULL, GL_STREAM_DRAW); }
+        if (streamOrphan) { glBufferData(GL_ARRAY_BUFFER, (GLsizeiptr)(gsVuVertCount * 48), NULL, GL_STREAM_DRAW); }
         glBufferSubData(GL_ARRAY_BUFFER, 0, (GLsizeiptr)(gsVuVertCount * 48), gsVuVerts);
     }
     if (gsVuIdxCount != 0) {
         glBindVertexArray(sVaoVu);
-        if (streamOrphan) { glBufferData(GL_ELEMENT_ARRAY_BUFFER, MAX_VU_IDX * sizeof(uint32_t), NULL, GL_STREAM_DRAW); }
+        if (streamOrphan) { glBufferData(GL_ELEMENT_ARRAY_BUFFER, (GLsizeiptr)(gsVuIdxCount * sizeof(uint32_t)), NULL, GL_STREAM_DRAW); }
         glBufferSubData(GL_ELEMENT_ARRAY_BUFFER, 0, (GLsizeiptr)(gsVuIdxCount * sizeof(uint32_t)), gsVuIdx);
         glBindVertexArray(0);
     }
