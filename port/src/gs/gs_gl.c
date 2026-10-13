@@ -279,6 +279,13 @@ static GLuint make_program(const unsigned char *vsrc, const unsigned char *fsrc,
     return p;
 }
 
+/* On mobile the game only uses the first 512x512 pixels of its 1024x1024
+   GS page. Match the Vulkan back end's smaller backing textures. */
+#if GL_ES
+static int sTW = 512, sTH = 512;
+#else
+static int sTW = GS_W, sTH = GS_H;
+#endif
 /* The small OpenGL presentation shader has a cheap one-tap sharp-bilinear mode. */
 static GLint sPresentInvSizeLoc = -1, sPresentOutScaleLoc = -1, sPresentFilterLoc = -1;
 
@@ -341,15 +348,6 @@ static GLuint make_present_program(void) {
 /* ---- state -------------------------------------------------------------------------------------- */
 static SDL_Window *sWindow;
 static SDL_GLContext sCtx;
-/* On mobile, the game only draws into the first 512x512 pixels of its 1024x1024
-   GS page. Match Vulkan's smaller backing textures: 1/4 of the render-target
-   memory and tile traffic at the same visible internal resolution. Keep the
-   1024x1024 viewport below: the vertex programs still use full-page coordinates. */
-#if GL_ES
-static int sTW = 512, sTH = 512;
-#else
-static int sTW = GS_W, sTH = GS_H;
-#endif
 static GLuint sMainProg[4]; /* gs.vert / vu0 / vu4 / vu6 + gs.frag */
 static GLuint sMainProgNd[4]; /* the same with gs.frag without its discards (pipeline key bit 23, as the Vulkan back end) */
 static GLuint sOutlineProg, sKeyProg, sDclutProg, sPresentProg;
