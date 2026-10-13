@@ -39,6 +39,14 @@ jobs:
     steps:
       - uses: actions/checkout@v5
 
+      # The new filter-off option must work in both GPU backends and the UI.
+      - name: Validate no-filter integration
+        working-directory: .
+        run: |
+          grep -q 'gsFilter == 5' port/src/gs/gs_gpu.c
+          grep -q 'gsFilter == 5' port/src/gs/gs_gl.c
+          grep -q 'name="filter_off"' android/app/src/main/res/values-es/strings.xml
+
       - uses: actions/setup-java@v5
         with:
           distribution: temurin
