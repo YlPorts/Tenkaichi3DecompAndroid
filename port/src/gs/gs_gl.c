@@ -871,7 +871,8 @@ static void present_picture(int best) {
             glBindVertexArray(sVaoGs); /* core profile needs a bound VAO to draw (the present uses no attributes) */
             glActiveTexture(GL_TEXTURE0);
             glBindTexture(GL_TEXTURE_2D, sTgCol[best]);
-            glBindSampler(0, sSamplers[7]); /* linear, clamped */
+            /* 5: disabled (nearest neighbour), otherwise the selected filter. */
+            glBindSampler(0, sSamplers[gsFilter == 5 ? 6 : 7]);
             glDrawArrays(GL_TRIANGLES, 0, 3);
             glBindFramebuffer(GL_FRAMEBUFFER, 0);
         }
