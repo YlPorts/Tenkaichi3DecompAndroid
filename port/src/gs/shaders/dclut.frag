@@ -20,12 +20,17 @@ layout(set = 3, binding = 0) uniform Params {
     vec4 p; // x: source (0 fog from depth, 1 alpha copy), y: depth maximum
 } u;
 void main() {
+    // Source textures are smaller than the logical 1024x1024 viewport on mobile.
+    // gl_FragCoord indexes the render target exactly; normalized fullscreen UV did not.
+    ivec2 xy = ivec2(gl_FragCoord.xy);
     int idx;
     if (u.p.x < 0.5) {
-        float z = texture(depthTex, vUv).r * u.p.y;
+        ivec2 at = clamp(xy, ivec2(0), textureSize(depthTex, 0) - 1);
+        float z = texelFetch(depthTex, at, 0).r * u.p.y;
         idx = z >= 65448.0 ? 0 : clamp(255 - int(z / 256.0), 0, 255);
     } else {
-        idx = int(texture(auxTex, vUv).r * 255.0 + 0.5);
+        ivec2 at = clamp(xy, ivec2(0), textureSize(auxTex, 0) - 1);
+        idx = int(texelFetch(auxTex, at, 0).r * 255.0 + 0.5);
     }
     vec4 c = texelFetch(clutTex, ivec2(idx, 0), 0);
     outColor = vec4(c.rgb, clamp(c.a * 255.0 / 128.0, 0.0, 1.0));
