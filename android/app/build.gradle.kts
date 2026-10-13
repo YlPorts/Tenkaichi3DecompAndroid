@@ -48,6 +48,8 @@ android {
 
     buildTypes {
         release {
+            // A non-debuggable, optimized APK even when using the stable test signing key.
+            isDebuggable = false
             isMinifyEnabled = true
             isShrinkResources = true
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
